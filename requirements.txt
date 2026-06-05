@@ -1,4 +1,4 @@
-streamlit
+streamlit>=1.39
 yfinance
 plotly
 pandas
@@ -6,9 +6,9 @@ numpy
 streamlit-extras
 streamlit-option-menu
 streamlit-searchbox
-st-keyup
+streamlit-keyup
 streamlit-tags
 streamlit-plotly-events
 openai
 requests
-lxmlv
+lxml

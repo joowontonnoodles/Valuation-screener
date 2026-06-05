@@ -7,12 +7,15 @@ from theme import (
     inject_audio_autoplay_helper,
     render_navbar,
     sidebar_audio_player,
+    PAGE_PATHS,
     THEME,
 )
+
 
 inject_global_css()
 inject_keyboard_sound()
 inject_audio_autoplay_helper()
+
 
 QUOTES = [
     ("Price is what you pay. Value is what you get.", "Warren Buffett"),
@@ -25,8 +28,19 @@ QUOTES = [
     ("Wide diversification is only required when investors do not understand what they are doing.", "Warren Buffett"),
 ]
 
+
 if "quote_idx" not in st.session_state:
     st.session_state.quote_idx = random.randint(0, len(QUOTES) - 1)
+
+
+def _go(label):
+    """Switch to a page using the resolved path map; fall back gracefully."""
+    target = PAGE_PATHS.get(label)
+    if target:
+        st.switch_page(target)
+    else:
+        st.error(f"Page '{label}' could not be found. Resolved map: {PAGE_PATHS}")
+
 
 with st.sidebar:
     st.markdown(
@@ -37,7 +51,9 @@ with st.sidebar:
     st.markdown("---")
     sidebar_audio_player()
 
+
 render_navbar("Homepage")
+
 
 st.markdown(
     f"""<div style="text-align:center;padding:2.5rem 1rem 1rem 1rem;">
@@ -48,6 +64,7 @@ st.markdown(
     </div>""",
     unsafe_allow_html=True,
 )
+
 
 q, who = QUOTES[st.session_state.quote_idx]
 with st.container(border=True):
@@ -64,8 +81,10 @@ with sc:
         st.session_state.quote_idx = random.randint(0, len(QUOTES) - 1)
         st.rerun()
 
+
 st.markdown('<div class="divider"></div>', unsafe_allow_html=True)
 st.markdown('<div class="section-header">Choose a Tool</div>', unsafe_allow_html=True)
+
 
 c1, c2 = st.columns(2)
 with c1:
@@ -77,7 +96,8 @@ with c1:
             unsafe_allow_html=True,
         )
         if st.button("Open Screener", key="nav_screener", use_container_width=True):
-            st.switch_page("pages/1_screener.py")
+            _go("Undervalued Stock Screener")
+
 
     with st.container(border=True):
         st.markdown("### Manual Valuation")
@@ -87,7 +107,8 @@ with c1:
             unsafe_allow_html=True,
         )
         if st.button("Open Manual Valuation", key="nav_manual", use_container_width=True):
-            st.switch_page("pages/3_manual_valuation.py")
+            _go("Manual Tweaks to Valuation Parameters")
+
 
 with c2:
     with st.container(border=True):
@@ -98,7 +119,8 @@ with c2:
             unsafe_allow_html=True,
         )
         if st.button("Open Auto Valuation", key="nav_auto", use_container_width=True):
-            st.switch_page("pages/2_auto_valuation.py")
+            _go("Automated Stock Valuation and Analysis")
+
 
     with st.container(border=True):
         st.markdown("### Monte Carlo Simulation")
@@ -109,4 +131,4 @@ with c2:
             unsafe_allow_html=True,
         )
         if st.button("Open Monte Carlo", key="nav_mc", use_container_width=True):
-            st.switch_page("pages/4_monte_carlo.py")
+            _go("Monte Carlo Simulation")

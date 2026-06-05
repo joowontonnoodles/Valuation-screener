@@ -1,4 +1,4 @@
-"""app.py - Entry point. Auto-registers any page found in pages/."""
+"""app.py - Entry point. Registers pages from theme.PAGE_PATHS (single source of truth)."""
 import os
 import streamlit as st
 
@@ -9,36 +9,25 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
+from theme import PAGE_PATHS
+
 _PROJECT_ROOT = os.path.dirname(os.path.abspath(__file__))
-_PAGES_DIR = os.path.join(_PROJECT_ROOT, "pages")
 
 
-def _find(keywords):
-    if not os.path.isdir(_PAGES_DIR):
-        return None
-    for fname in sorted(os.listdir(_PAGES_DIR)):
-        if not fname.endswith(".py"):
-            continue
-        lower = fname.lower()
-        for kw in keywords:
-            if kw.lower() in lower:
-                return f"pages/{fname}"
-    return None
+def _exists(rel_path):
+    if not rel_path:
+        return False
+    full = os.path.join(_PROJECT_ROOT, rel_path.replace("/", os.sep))
+    return os.path.isfile(full)
 
 
 pages_list = [st.Page("home_page.py", title="Homepage", default=True)]
 
-p = _find(["screener", "undervalued"])
-if p: pages_list.append(st.Page(p, title="Undervalued Stock Screener"))
-
-p = _find(["auto_valuation", "automated"])
-if p: pages_list.append(st.Page(p, title="Automated Stock Valuation and Analysis"))
-
-p = _find(["manual", "tweaks"])
-if p: pages_list.append(st.Page(p, title="Manual Tweaks to Valuation Parameters"))
-
-p = _find(["monte_carlo", "montecarlo", "monte"])
-if p: pages_list.append(st.Page(p, title="Monte Carlo Simulation"))
+for label, rel_path in PAGE_PATHS.items():
+    if label == "Homepage":
+        continue
+    if _exists(rel_path):
+        pages_list.append(st.Page(rel_path, title=label))
 
 pg = st.navigation(pages_list)
 pg.run()

@@ -4,10 +4,18 @@ import numpy as np
 import pandas as pd
 import yfinance as yf
 
+from utils.fx import to_usd_multipliers
+
 
 def calculate_automatic_valuation(ticker_symbol):
     try:
         ticker = yf.Ticker(ticker_symbol)
+
+        # --- Currency conversion multipliers (1.0 each for US stocks) ---
+        fx = to_usd_multipliers(ticker)
+        fcf_to_usd = fx.get("fcf_to_usd", 1.0) or 1.0
+        price_to_usd = fx.get("price_to_usd", 1.0) or 1.0
+
         income_stmt = ticker.financials
         shares_outstanding = ticker.info.get("sharesOutstanding")
         if not shares_outstanding:
@@ -50,8 +58,12 @@ def calculate_automatic_valuation(ticker_symbol):
         Expected_growth_rate = (Rev_future_avg_growth + Rev_growth_historical) / 2
         g = Expected_growth_rate
 
-        treasury = yf.Ticker("^TNX")
-        risk_free_rate = treasury.info['regularMarketPrice'] / 100
+        try:
+            treasury = yf.Ticker("^TNX")
+            risk_free_rate = treasury.info['regularMarketPrice'] / 100
+        except Exception:
+            risk_free_rate = 0.043
+
         market_cap = info.get('marketCap', 0)
         if market_cap >= 2_000_000_000_000:
             beta = 1.05
@@ -67,7 +79,8 @@ def calculate_automatic_valuation(ticker_symbol):
         market_return = risk_free_rate + equity_risk_premium
         r = risk_free_rate + beta * (market_return - risk_free_rate)
 
-        FCF_N = fcf_history.iloc[0] * 1.05
+        # FCF converted to USD
+        FCF_N = fcf_history.iloc[0] * 1.05 * fcf_to_usd
         terminal_growth_rate = 0.03
         growth_rates = []
         for year in range(1, 11):
@@ -89,7 +102,7 @@ def calculate_automatic_valuation(ticker_symbol):
         CV9  = CV8  * (1 + growth_rates[8])
         CV10 = CV9  * (1 + growth_rates[9])
 
-        EBITDA_at_year_N = info.get('ebitda', 0)
+        EBITDA_at_year_N = (info.get('ebitda', 0) or 0) * fcf_to_usd
         perpetual_g = 0.03
         exit_multiple = 10.0
         number_of_years_TV = 10
@@ -106,7 +119,9 @@ def calculate_automatic_valuation(ticker_symbol):
         else:
             PV_TV_multiple = 0
 
-        market_cap_buffer = market_cap / 10 if market_cap > 0 else 0
+        # market cap is reported in trading currency -> convert to USD
+        market_cap_usd = market_cap * price_to_usd if market_cap > 0 else 0
+        market_cap_buffer = market_cap_usd / 10 if market_cap_usd > 0 else 0
         PV_TV = (PV_TV_multiple + PV_TV_gordon + market_cap_buffer) / 2 if (PV_TV_multiple + PV_TV_gordon) > 0 else 0
 
         DCF = (CV1/(1+r) + CV2/((1+r)**2) + CV3/((1+r)**3) + CV4/((1+r)**4) +
@@ -144,7 +159,7 @@ def calculate_automatic_valuation(ticker_symbol):
         DDM_is_used = False
         if DDM_is_eligible:
             try:
-                DDM_current_dividend = info.get('dividendRate', 0)
+                DDM_current_dividend = (info.get('dividendRate', 0) or 0) * price_to_usd
                 if DDM_current_dividend > 0 and r > g:
                     DDM_next_dividend = DDM_current_dividend * (1 + g)
                     DDM_intrinsic_value = DDM_next_dividend / (r - g)
@@ -193,7 +208,10 @@ def calculate_automatic_valuation(ticker_symbol):
 
         composite = (mult_ebitda + mult_de + mult_capex + mult_roe + mult_current) / 5
         adjusted_value = intrinsic_value * composite
-        current_price = info.get('currentPrice', info.get('regularMarketPrice', 0))
+
+        # current price converted to USD
+        raw_price = info.get('currentPrice', info.get('regularMarketPrice', 0)) or 0
+        current_price = raw_price * price_to_usd
         upside = ((adjusted_value - current_price) / current_price * 100) if current_price > 0 else 0
 
         return {
@@ -217,6 +235,9 @@ def calculate_automatic_valuation(ticker_symbol):
             'composite_multiplier': composite, 'adjusted_value': adjusted_value,
             'upside': upside, 'market_cap': market_cap,
             'shares_outstanding': shares_outstanding,
+            'is_foreign': fx.get("is_foreign", False),
+            'reporting_ccy': fx.get("reporting", "USD"),
+            'trading_ccy': fx.get("trading", "USD"),
         }
     except Exception:
         return None
@@ -234,6 +255,10 @@ def calculate_manual_valuation(ticker_symbol, auto_result,
         info = stock.info
         ar = auto_result
 
+        fx = to_usd_multipliers(stock)
+        fcf_to_usd = fx.get("fcf_to_usd", 1.0) or 1.0
+        price_to_usd = fx.get("price_to_usd", 1.0) or 1.0
+
         pg  = perpetual_growth / 100
         bm  = beta_multiplier
         rsg = risk_free_rate / 100
@@ -241,6 +266,7 @@ def calculate_manual_valuation(ticker_symbol, auto_result,
         cg  = [v / 100 for v in [cf1_growth, cf2_growth, cf3_growth, cf4_growth, cf5_growth,
                                    cf6_growth, cf7_growth, cf8_growth, cf9_growth, cf10_growth]]
 
+        # ar['fcf_current'] is already in USD from the auto valuation
         M_FCF_N = ar['fcf_current']
         cvs = [M_FCF_N]
         for gr in cg:
@@ -251,18 +277,19 @@ def calculate_manual_valuation(ticker_symbol, auto_result,
         market_return = rsg + equity_risk_premium
         r = rsg + bm * (market_return - rsg)
 
-        EBITDA_at_year_N = info.get('ebitda', 0)
+        EBITDA_at_year_N = (info.get('ebitda', 0) or 0) * fcf_to_usd
         exit_multiple = 10.0
 
         PV_TV_gordon = cvs[-1] * (1 + pg) / (r - pg) / ((1 + r) ** 10) if r > pg else 0
         PV_TV_multiple = (EBITDA_at_year_N * exit_multiple / ((1 + r) ** 10)) if EBITDA_at_year_N and EBITDA_at_year_N > 0 else 0
-        market_cap = info.get('marketCap', 0)
+        market_cap = (info.get('marketCap', 0) or 0) * price_to_usd
         market_cap_buffer = market_cap / 10 if market_cap > 0 else 0
         PV_TV = (PV_TV_multiple + PV_TV_gordon + market_cap_buffer) / 2 if (PV_TV_multiple + PV_TV_gordon) > 0 else 0
 
         manual_dcf = sum(cvs[i] / ((1 + r) ** (i + 1)) for i in range(10)) + PV_TV
         m_dcf_pershare = (manual_dcf * m) / shares_outstanding
-        current_price = info.get('currentPrice', info.get('regularMarketPrice', 0))
+        raw_price = info.get('currentPrice', info.get('regularMarketPrice', 0)) or 0
+        current_price = raw_price * price_to_usd
         upside = ((m_dcf_pershare - current_price) / current_price * 100) if current_price > 0 else 0
 
         return {

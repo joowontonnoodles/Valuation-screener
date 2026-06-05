@@ -1,0 +1,14 @@
+streamlit
+yfinance
+plotly
+pandas
+numpy
+streamlit-extras
+streamlit-option-menu
+streamlit-searchbox
+st-keyup
+streamlit-tags
+streamlit-plotly-events
+openai
+requests
+lxmlv

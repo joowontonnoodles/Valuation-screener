@@ -234,4 +234,4 @@ with nc2:
         st.switch_page("pages/4_monte_carlo.py")
 with nc3:
     if st.button("Back to Home"):
-        st.switch_page("app.py")
+        st.switch_page("home_page.py")

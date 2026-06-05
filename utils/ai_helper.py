@@ -1,21 +1,55 @@
-"""utils/ai_helper.py - AI explanation builder. Uses OpenAI client."""
+"""utils/ai_helper.py - AI explanation builder. Robust to OpenAI or OpenRouter keys."""
 import os
 import streamlit as st
 
-try:
-    from openai import OpenAI
-    _client = OpenAI(api_key=os.getenv("OPENAI_API_KEY") or st.secrets.get("OPENAI_API_KEY", ""))
-except Exception:
-    _client = None
 
-
-def get_ai_explanation(prompt, model="gpt-4o-mini", max_tokens=700):
-    """Send a prompt to the LLM and return text. Falls back to a stub if no client."""
-    if _client is None:
-        return ("AI explanation unavailable — no OpenAI client configured. "
-                "Set OPENAI_API_KEY in environment or .streamlit/secrets.toml.")
+def _get_secret(name):
+    val = os.getenv(name)
+    if val:
+        return val
     try:
-        resp = _client.chat.completions.create(
+        return st.secrets.get(name, None)
+    except Exception:
+        return None
+
+
+def _make_client():
+    """Lazily build a client. Prefers OpenAI key, falls back to OpenRouter."""
+    try:
+        from openai import OpenAI
+    except Exception:
+        return None, None
+
+    openai_key = _get_secret("OPENAI_API_KEY")
+    if openai_key:
+        try:
+            return OpenAI(api_key=openai_key), "openai"
+        except Exception:
+            return None, None
+
+    or_key = _get_secret("OPENROUTER_API_KEY")
+    if or_key:
+        try:
+            return OpenAI(api_key=or_key, base_url="https://openrouter.ai/api/v1"), "openrouter"
+        except Exception:
+            return None, None
+
+    return None, None
+
+
+def get_ai_explanation(prompt, model=None, max_tokens=700):
+    """Send a prompt to the LLM and return text. Returns a clear message if unconfigured."""
+    client, provider = _make_client()
+    if client is None:
+        return ("AI explanation unavailable - no API key found. Set OPENAI_API_KEY or "
+                "OPENROUTER_API_KEY in your environment or .streamlit/secrets.toml "
+                "(and in the Streamlit Cloud 'Secrets' box when deployed).")
+
+    if model is None:
+        model = "gpt-4o-mini" if provider == "openai" else "meta-llama/llama-3.3-70b-instruct:free"
+
+    try:
+        kwargs = dict(
             model=model,
             messages=[
                 {"role": "system",
@@ -26,6 +60,12 @@ def get_ai_explanation(prompt, model="gpt-4o-mini", max_tokens=700):
             max_tokens=max_tokens,
             temperature=0.4,
         )
+        if provider == "openrouter":
+            kwargs["extra_headers"] = {
+                "HTTP-Referer": "https://valuation-tool.local",
+                "X-Title": "The Valuation Tool",
+            }
+        resp = client.chat.completions.create(**kwargs)
         return resp.choices[0].message.content.strip()
     except Exception as e:
         return f"AI request failed: {e}"
